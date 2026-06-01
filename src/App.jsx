@@ -2086,6 +2086,7 @@ function Historico({ sales, products }) {
   const [selMonth, setSelMonth]   = useState(now.getMonth());
   const [selYear,  setSelYear]    = useState(now.getFullYear());
   const [catFilter, setCatFilter] = useState("all");
+  const [locFilter, setLocFilter] = useState("all");
 
   const [selectedSale, setSelectedSale] = useState(null);
 
@@ -2122,13 +2123,18 @@ function Historico({ sales, products }) {
     });
   });
 
-  // Items of the selected period + optional category filter
+  // Items of the selected period + optional filters
   const periodItems = allItems.filter(i =>
     i.month===selMonth && i.year===selYear &&
-    (catFilter==="all" || i.category===catFilter)
+    (catFilter==="all" || i.category===catFilter) &&
+    (locFilter==="all"  || i.location===locFilter)
   );
 
   const cats = CATEGORIES.filter(c => allItems.some(i => i.category===c));
+
+  // Unique locations for the period (across the whole month, before location filter)
+  const monthItems = allItems.filter(i => i.month===selMonth && i.year===selYear);
+  const locations  = [...new Set(monthItems.map(i => i.location).filter(Boolean))].sort();
 
   // Grand total of the period
   const grandTotal = periodItems.reduce((s,i) => s+i.subtotal, 0);
@@ -2157,7 +2163,7 @@ function Historico({ sales, products }) {
   // Unique sales in the period for the info header
   const periodSales = [...new Map(
     periodItems
-      .filter(i => catFilter==="all" || i.category===catFilter)
+      .filter(i => (catFilter==="all" || i.category===catFilter) && (locFilter==="all" || i.location===locFilter))
       .map(i => [i.saleId, {
         saleId:     i.saleId,
         date:       i.date,
@@ -2252,7 +2258,7 @@ function Historico({ sales, products }) {
     wsCat["!cols"] = [14,18,10,10,10,14].map(w=>({wch:w}));
     XLSX.utils.book_append_sheet(wb, wsCat, "Por Categoria");
 
-    const fileName = `AventalPro_${MONTHS_PT[selMonth]}_${selYear}${catFilter!=="all"?`_${catFilter}`:""}.xlsx`;
+    const fileName = `AventalPro_${MONTHS_PT[selMonth]}_${selYear}${catFilter!=="all"?`_${catFilter}`:""}${locFilter!=="all"?`_${locFilter.replace(/\s+/g,"_")}`:""}.xlsx`;
     XLSX.writeFile(wb, fileName);
   };
 
@@ -2281,6 +2287,10 @@ function Historico({ sales, products }) {
           <select className="filter-select" value={catFilter} onChange={e=>setCatFilter(e.target.value)}>
             <option value="all">Todas categorias</option>
             {cats.map(c => <option key={c}>{c}</option>)}
+          </select>
+          <select className="filter-select" value={locFilter} onChange={e=>setLocFilter(e.target.value)}>
+            <option value="all">Todos os locais</option>
+            {locations.map(l => <option key={l} value={l}>{l}</option>)}
           </select>
           <div style={{flex:1}} />
           {periodItems.length>0 && (
