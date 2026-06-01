@@ -9,6 +9,7 @@ import {
   signOut,
   onAuthStateChanged
 } from "firebase/auth";
+import JsBarcode from "jsbarcode";
 
 // ── Firebase config ───────────────────────────────────────────────────────────
 const firebaseConfig = {
@@ -59,25 +60,20 @@ function genBarcode(products) {
   return String(max + 1).padStart(8, "0");
 }
 
-let jsBarcodeReady = false;
-function loadJsBarcode(cb) {
-  if (window.JsBarcode) { jsBarcodeReady = true; cb(); return; }
-  const s = document.createElement("script");
-  s.src = "https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.5/JsBarcode.all.min.js";
-  s.onload = () => { jsBarcodeReady = true; cb(); };
-  document.head.appendChild(s);
-}
+// BarcodeDisplay usa JsBarcode via npm — sem CDN, sem timing issues
 function BarcodeDisplay({ value, height=56, fontSize=11 }) {
   const ref = useRef();
-  const [ready, setReady] = useState(jsBarcodeReady);
-  useEffect(() => { if (!ready) loadJsBarcode(() => setReady(true)); }, []);
   useEffect(() => {
-    if (!ready || !ref.current || !value) return;
-    try { window.JsBarcode(ref.current, value, { format:"CODE128", width:2, height, displayValue:true, fontSize, fontOptions:"bold", font:"monospace", lineColor:"#000", margin:4, background:"transparent" }); }
-    catch(e) {}
-  }, [ready, value, height, fontSize]);
+    if (!ref.current || !value) return;
+    try {
+      JsBarcode(ref.current, value, {
+        format:"CODE128", width:2, height, displayValue:true,
+        fontSize, fontOptions:"bold", font:"monospace",
+        lineColor:"#000", margin:4, background:"transparent"
+      });
+    } catch(e) {}
+  }, [value, height, fontSize]);
   if (!value) return <div style={{fontSize:11,color:"#9b9890",textAlign:"center",padding:"8px 0"}}>Sem codigo</div>;
-  if (!ready) return <div style={{fontSize:11,color:"#9b9890",textAlign:"center"}}>...</div>;
   return <svg ref={ref} style={{maxWidth:"100%",display:"block",margin:"0 auto"}} />;
 }
 
@@ -960,29 +956,36 @@ function Etiquetas({ products, saveProducts, showToast }) {
     items.forEach(p => {
       const div = document.createElement("div");
       div.className = "print-label";
+      const svgEl = document.createElementNS("http://www.w3.org/2000/svg","svg");
       const svgId = "svg"+Math.random().toString(36).slice(2);
-      div.innerHTML = `
-        <div class="print-label-top">
-          <div class="print-shop">${shopName}</div>
-          <div class="print-name">${p.model}</div>
-          <div class="print-detail">${p.category||""} · ${p.color} · Tam. ${p.size}</div>
-        </div>
-        <svg id="${svgId}"></svg>
-        ${p.price ? `<div class="print-price">R$ ${Number(p.price).toFixed(2).replace(".",",")}</div>` : ""}
+      svgEl.id = svgId;
+      const top = document.createElement("div");
+      top.className = "print-label-top";
+      top.innerHTML = `
+        <div class="print-shop">${shopName}</div>
+        <div class="print-name">${p.model}</div>
+        <div class="print-detail">${p.category||""} · ${p.color} · Tam. ${p.size}</div>
       `;
+      div.appendChild(top);
+      div.appendChild(svgEl);
+      if (p.price) {
+        const priceEl = document.createElement("div");
+        priceEl.className = "print-price";
+        priceEl.textContent = "R$ " + Number(p.price).toFixed(2).replace(".",",");
+        div.appendChild(priceEl);
+      }
       area.appendChild(div);
-      setTimeout(() => {
-        if (!window.JsBarcode) return;
-        try {
-          window.JsBarcode("#"+svgId, p.barcode, {
-            format:"CODE128", width:1.4, height:36,
-            displayValue:true, fontSize:7, font:"monospace",
-            lineColor:"#000", margin:1, background:"transparent",
-          });
-        } catch(e) {}
-      }, 150);
+      // Render barcode synchronously using npm JsBarcode
+      try {
+        JsBarcode(svgEl, p.barcode, {
+          format:"CODE128", width:1.4, height:36,
+          displayValue:true, fontSize:7, font:"monospace",
+          lineColor:"#000", margin:1, background:"transparent",
+        });
+      } catch(e) { console.warn("Barcode error:", p.barcode, e); }
     });
-    setTimeout(() => window.print(), 600);
+    // Small delay only for DOM paint, not for script loading
+    setTimeout(() => window.print(), 200);
   };
 
   return (
