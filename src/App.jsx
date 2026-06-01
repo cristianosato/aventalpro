@@ -177,6 +177,10 @@ tr:hover td{background:var(--surface2)}
 .divider{height:1px;background:var(--border);margin:14px 0}
 .section-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
 .section-head h2{font-size:16px;font-weight:700}
+.restock-found{display:flex;align-items:center;gap:10px;padding:12px 14px;background:var(--success-light);border:1.5px solid var(--success);border-radius:var(--radius-sm);margin-bottom:4px}
+.restock-found-info{flex:1;min-width:0}
+.restock-found-name{font-size:14px;font-weight:700;color:var(--ink)}
+.restock-found-sub{font-size:12px;color:var(--ink2)}
 .stock-bar{height:4px;border-radius:99px;background:var(--border);overflow:hidden;margin-top:4px}
 .stock-bar-fill{height:100%;border-radius:99px}
 .form-row{display:grid;gap:12px;grid-template-columns:1fr 1fr}
@@ -674,6 +678,7 @@ function ProductFormModal({ products, saveProducts, showToast, editingProduct, o
 function Dashboard({ products, saveProducts, showToast, sales }) {
   const [modal, setModal]         = useState(false);    // novo produto
   const [editingProduct, setEditingProduct] = useState(null);
+  const [restockModal, setRestockModal] = useState(false); // repor estoque
   const [activeCat, setActiveCat] = useState(null);     // aba de categoria ativa
 
   // Categorias que têm produtos
@@ -717,7 +722,10 @@ function Dashboard({ products, saveProducts, showToast, sales }) {
       {/* Cabeçalho da página + botão novo produto */}
       <div className="section-head" style={{marginBottom:16}}>
         <h2 style={{fontSize:16,fontWeight:700}}>Estoque</h2>
-        <button className="btn btn-primary btn-sm" onClick={openNew}>+ Novo Produto</button>
+        <div style={{display:"flex",gap:8}}>
+          <button className="btn btn-ghost btn-sm" onClick={()=>setRestockModal(true)}>📦 Repor Estoque</button>
+          <button className="btn btn-primary btn-sm" onClick={openNew}>+ Novo Produto</button>
+        </div>
       </div>
 
       {/* Aviso sem código de barras */}
@@ -882,6 +890,268 @@ function Dashboard({ products, saveProducts, showToast, sales }) {
           onClose={() => { setModal(false); setEditingProduct(null); }}
         />
       )}
+
+      {/* Modal de reposição de estoque */}
+      {restockModal && (
+        <RestockModal
+          products={products}
+          saveProducts={saveProducts}
+          showToast={showToast}
+          onClose={() => setRestockModal(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+// ── RestockModal — Repor Estoque ──────────────────────────────────────────────
+function RestockModal({ products, saveProducts, showToast, onClose }) {
+  const [scanVal, setScanVal]       = useState("");
+  const [scanning, setScanning]     = useState(false);
+  const [found, setFound]           = useState(null);    // produto encontrado
+  const [qty, setQty]               = useState(1);       // quantidade a repor
+  const [searchQ, setSearchQ]       = useState("");
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const scanRef   = useRef();
+  const qtyRef    = useRef();
+  const bufRef    = useRef("");
+  const timerRef  = useRef(null);
+
+  // Autocomplete: filtra produtos pelo que foi digitado
+  const suggestions = searchQ.length >= 2
+    ? products.filter(p =>
+        p.model.toLowerCase().includes(searchQ.toLowerCase()) ||
+        (p.category||"").toLowerCase().includes(searchQ.toLowerCase()) ||
+        p.color.toLowerCase().includes(searchQ.toLowerCase()) ||
+        (p.barcode||"").includes(searchQ)
+      ).slice(0, 10)
+    : [];
+
+  // Scanner: leitor USB age como teclado e envia Enter no final
+  const processBarcode = (code) => {
+    const c = code.trim();
+    if (!c) return;
+    const product = products.find(p => p.barcode === c);
+    if (!product) {
+      showToast("Codigo nao encontrado: " + c);
+      return;
+    }
+    selectProduct(product);
+  };
+
+  const handleScanChange = (e) => {
+    bufRef.current = e.target.value;
+    setScanVal(e.target.value);
+    clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => {
+      if (bufRef.current.length > 3) {
+        processBarcode(bufRef.current);
+        bufRef.current = "";
+        setScanVal("");
+      }
+    }, 280);
+  };
+
+  const handleScanKey = (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      const c = bufRef.current;
+      bufRef.current = "";
+      setScanVal("");
+      if (c) processBarcode(c);
+    }
+  };
+
+  const selectProduct = (product) => {
+    setFound(product);
+    setQty(1);
+    setSearchQ("");
+    setShowSuggestions(false);
+    setScanVal("");
+    // Focar no campo de quantidade
+    setTimeout(() => qtyRef.current?.focus(), 100);
+  };
+
+  const handleInsert = () => {
+    if (!found) return showToast("Selecione um produto");
+    const n = parseInt(qty);
+    if (!n || n <= 0) return showToast("Informe uma quantidade valida");
+    const updated = products.map(p =>
+      p.id === found.id ? { ...p, stock: p.stock + n } : p
+    );
+    saveProducts(updated);
+    showToast(`✅ +${n} unidade${n > 1 ? "s" : ""} adicionada${n > 1 ? "s" : ""} — ${found.model} ${found.color}/${found.size}`);
+    // Limpar para repor outro produto sem fechar
+    setFound(null);
+    setQty(1);
+    setSearchQ("");
+    setScanVal("");
+    setTimeout(() => scanRef.current?.focus(), 100);
+  };
+
+  const handleKeyInsert = (e) => {
+    if (e.key === "Enter") handleInsert();
+  };
+
+  return (
+    <div className="modal-bg" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="modal" style={{maxWidth:480}}>
+        <div className="modal-title">
+          📦 Repor Estoque
+          <button className="close-btn" onClick={onClose}>×</button>
+        </div>
+
+        {/* Scanner */}
+        <div style={{marginBottom:16}}>
+          <div style={{fontSize:12,fontWeight:700,color:"var(--ink2)",textTransform:"uppercase",letterSpacing:".4px",marginBottom:8}}>
+            1. Escaneie a etiqueta do produto
+          </div>
+          <div style={{display:"flex",gap:8}}>
+            <input
+              ref={scanRef}
+              autoFocus
+              className={scanning ? "scan-focus" : ""}
+              style={{flex:1,padding:"10px 12px",border:"1.5px solid var(--border)",borderRadius:"var(--radius-sm)",fontFamily:"'DM Mono',monospace",fontSize:14,outline:"none",transition:"border .15s",background: scanning ? "var(--accent-light)" : "#fff"}}
+              placeholder="Escaneie a etiqueta ou clique aqui..."
+              value={scanVal}
+              onChange={handleScanChange}
+              onKeyDown={handleScanKey}
+              onFocus={() => setScanning(true)}
+              onBlur={() => setScanning(false)}
+              autoComplete="off"
+            />
+            <div
+              onClick={() => scanRef.current?.focus()}
+              style={{
+                width:42, display:"flex", alignItems:"center", justifyContent:"center",
+                fontSize:20, background: scanning ? "var(--accent)" : "var(--surface2)",
+                border:"1.5px solid var(--border)", borderRadius:"var(--radius-sm)",
+                cursor:"pointer", flexShrink:0,
+              }}
+            >{scanning ? "📡" : "📷"}</div>
+          </div>
+        </div>
+
+        {/* Divisor */}
+        <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16}}>
+          <div style={{flex:1,height:1,background:"var(--border)"}} />
+          <span style={{fontSize:12,color:"var(--ink2)",fontWeight:600}}>ou</span>
+          <div style={{flex:1,height:1,background:"var(--border)"}} />
+        </div>
+
+        {/* Busca manual com autocomplete */}
+        <div style={{marginBottom:16}}>
+          <div style={{fontSize:12,fontWeight:700,color:"var(--ink2)",textTransform:"uppercase",letterSpacing:".4px",marginBottom:8}}>
+            2. Busque pelo nome do produto
+          </div>
+          <div style={{position:"relative"}}>
+            <span style={{position:"absolute",left:11,top:"50%",transform:"translateY(-50%)",color:"var(--ink3)",fontSize:14,pointerEvents:"none"}}>🔍</span>
+            <input
+              style={{width:"100%",padding:"10px 12px 10px 34px",border:"1.5px solid var(--border)",borderRadius:`var(--radius-sm) var(--radius-sm) ${showSuggestions && suggestions.length > 0 ? "0 0" : "var(--radius-sm) var(--radius-sm)"}`,fontFamily:"inherit",fontSize:14,outline:"none",transition:"border .15s"}}
+              placeholder="Modelo, categoria, cor..."
+              value={searchQ}
+              onChange={e => { setSearchQ(e.target.value); setShowSuggestions(true); }}
+              onFocus={() => setShowSuggestions(true)}
+              onBlur={() => setTimeout(() => setShowSuggestions(false), 160)}
+              autoComplete="off"
+            />
+            {showSuggestions && suggestions.length > 0 && (
+              <div style={{
+                position:"absolute", top:"100%", left:0, right:0, zIndex:300,
+                background:"var(--surface)", border:"1.5px solid var(--accent)",
+                borderTop:"none", borderRadius:"0 0 var(--radius-sm) var(--radius-sm)",
+                maxHeight:220, overflowY:"auto", boxShadow:"var(--shadow)"
+              }}>
+                {suggestions.map(p => (
+                  <div key={p.id}
+                    style={{display:"flex",alignItems:"center",gap:10,padding:"9px 12px",borderBottom:"1px solid var(--border)",cursor:"pointer"}}
+                    onMouseDown={() => selectProduct(p)}
+                  >
+                    <span style={{width:10,height:10,borderRadius:"50%",background:COLOR_HEX[p.color]||"#ccc",flexShrink:0,border:"1px solid rgba(0,0,0,.1)"}} />
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontSize:13,fontWeight:600,display:"flex",alignItems:"center",gap:5}}>
+                        {p.category && <span style={{fontSize:10,color:"var(--ink3)"}}>{CAT_ICON[p.category]||""}</span>}
+                        {p.model}
+                      </div>
+                      <div style={{fontSize:11,color:"var(--ink2)"}}>{p.color} · {p.size} · estoque atual: <b>{p.stock}</b></div>
+                    </div>
+                    {p.price && <span style={{fontSize:12,fontWeight:700,color:"var(--accent)",flexShrink:0}}>{fmt(p.price)}</span>}
+                  </div>
+                ))}
+              </div>
+            )}
+            {showSuggestions && searchQ.length >= 2 && suggestions.length === 0 && (
+              <div style={{position:"absolute",top:"100%",left:0,right:0,zIndex:300,background:"var(--surface)",border:"1.5px solid var(--border)",borderTop:"none",borderRadius:"0 0 var(--radius-sm) var(--radius-sm)",padding:"10px 12px",fontSize:13,color:"var(--ink2)"}}>
+                Nenhum produto encontrado.
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Produto selecionado + campo de quantidade */}
+        {found && (
+          <div style={{marginBottom:16}}>
+            <div className="restock-found">
+              <span style={{width:14,height:14,borderRadius:"50%",background:COLOR_HEX[found.color]||"#ccc",flexShrink:0,border:"1px solid rgba(0,0,0,.1)"}} />
+              <div className="restock-found-info">
+                <div className="restock-found-name">
+                  {found.category && <span style={{fontSize:11,color:"var(--success)",marginRight:5}}>{CAT_ICON[found.category]||""} {found.category}</span>}
+                  {found.model}
+                </div>
+                <div className="restock-found-sub">
+                  {found.color} · {found.size}
+                  {found.barcode && <span style={{marginLeft:6,fontFamily:"monospace",fontSize:11}}>{found.barcode}</span>}
+                </div>
+              </div>
+              <div style={{textAlign:"right",flexShrink:0}}>
+                <div style={{fontSize:11,color:"var(--ink2)"}}>Estoque atual</div>
+                <div style={{fontSize:18,fontWeight:700,color:"var(--ink)"}}>{found.stock}</div>
+              </div>
+            </div>
+
+            <div style={{display:"flex",gap:10,alignItems:"flex-end",marginTop:12}}>
+              <div className="field" style={{flex:1}}>
+                <label>Quantidade a acrescentar</label>
+                <input
+                  ref={qtyRef}
+                  type="number"
+                  min="1"
+                  value={qty}
+                  onChange={e => setQty(e.target.value)}
+                  onKeyDown={handleKeyInsert}
+                  style={{padding:"11px 12px",border:"1.5px solid var(--accent)",borderRadius:"var(--radius-sm)",fontFamily:"inherit",fontSize:18,fontWeight:700,textAlign:"center",outline:"none",width:"100%",color:"var(--accent)"}}
+                />
+              </div>
+              <div style={{flexShrink:0,paddingBottom:1}}>
+                <div style={{fontSize:11,color:"var(--ink2)",marginBottom:4,textAlign:"center"}}>
+                  Novo total
+                </div>
+                <div style={{fontSize:18,fontWeight:700,color:"var(--accent)",background:"var(--accent-light)",padding:"10px 16px",borderRadius:"var(--radius-sm)",textAlign:"center",minWidth:72}}>
+                  {found.stock + (parseInt(qty)||0)}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Botões */}
+        <div style={{display:"flex",gap:10,marginTop:4}}>
+          <button className="btn btn-ghost" style={{flex:1}} onClick={onClose}>Fechar</button>
+          <button
+            className="btn btn-primary"
+            style={{flex:2,fontSize:15,padding:"12px"}}
+            onClick={handleInsert}
+            disabled={!found || !(parseInt(qty) > 0)}
+          >
+            ✅ Inserir no Estoque
+          </button>
+        </div>
+        {found && (
+          <div style={{textAlign:"center",marginTop:8,fontSize:11,color:"var(--ink2)"}}>
+            Pressione Enter para confirmar · Feche para encerrar
+          </div>
+        )}
+      </div>
     </div>
   );
 }
