@@ -968,8 +968,9 @@ function RestockModal({ products, saveProducts, showToast, onClose }) {
     setSearchQ("");
     setShowSuggestions(false);
     setScanVal("");
-    // Focar no campo de quantidade
-    setTimeout(() => qtyRef.current?.focus(), 100);
+    // IMPORTANTE: manter foco no scanner, nao no qty
+    // Isso evita que uma segunda leitura do leitor vá para o campo de quantidade
+    setTimeout(() => scanRef.current?.focus(), 100);
   };
 
   const handleInsert = () => {
@@ -987,6 +988,21 @@ function RestockModal({ products, saveProducts, showToast, onClose }) {
     setSearchQ("");
     setScanVal("");
     setTimeout(() => scanRef.current?.focus(), 100);
+  };
+
+  // Qty field: detecta se o leitor digitou um codigo de barras aqui por engano
+  // (codigo tem > 4 digitos e nao e uma quantidade normal)
+  const handleQtyChange = (e) => {
+    const val = e.target.value;
+    // Se o valor digitado tem mais de 4 digitos, provavelmente e um codigo de barras
+    // Redireciona para o scanner processar
+    if (val.length > 4 && /^\d+$/.test(val)) {
+      setQty(1);
+      processBarcode(val);
+      setTimeout(() => scanRef.current?.focus(), 50);
+      return;
+    }
+    setQty(val);
   };
 
   const handleKeyInsert = (e) => {
@@ -1117,7 +1133,7 @@ function RestockModal({ products, saveProducts, showToast, onClose }) {
                   type="number"
                   min="1"
                   value={qty}
-                  onChange={e => setQty(e.target.value)}
+                  onChange={handleQtyChange}
                   onKeyDown={handleKeyInsert}
                   style={{padding:"11px 12px",border:"1.5px solid var(--accent)",borderRadius:"var(--radius-sm)",fontFamily:"inherit",fontSize:18,fontWeight:700,textAlign:"center",outline:"none",width:"100%",color:"var(--accent)"}}
                 />
