@@ -47,11 +47,24 @@ const uid     = () => Math.random().toString(36).slice(2, 9);
 const fmt     = (n) => new Intl.NumberFormat("pt-BR", { style:"currency", currency:"BRL" }).format(n);
 const fmtDate = (d) => new Date(d).toLocaleString("pt-BR", { day:"2-digit", month:"2-digit", year:"numeric", hour:"2-digit", minute:"2-digit" });
 
-const CATEGORIES = ["Avental", "Gorro", "Jaleco", "Mascara", "Outro"];
+const CATEGORIES = ["Jaleco", "Gorro", "Equip. de Massagem", "Outro"];
 const COLORS     = ["Branco", "Azul", "Verde", "Rosa", "Preto", "Cinza", "Lilas", "Bege", "Vinho", "Amarelo"];
-const SIZES      = ["Unico", "PP", "P", "M", "G", "GG", "XGG"];
+const SIZES      = ["32", "PP", "P", "M", "G", "GG", "G1", "G2", "G3"];
 const COLOR_HEX  = { Branco:"#f5f5f5", Azul:"#4a90d9", Verde:"#4aa87a", Rosa:"#e87a9a", Preto:"#2a2a2a", Cinza:"#8a8a8a", Lilas:"#9a7ace", Bege:"#d4b896", Vinho:"#8b1a1a", Amarelo:"#e8c84a" };
-const CAT_ICON   = { Avental:"🥼", Gorro:"🎩", Jaleco:"👔", Mascara:"😷", Outro:"📦" };
+
+// Retorna a cor hexadecimal para qualquer nome de cor (mesmo digitada livremente).
+// Tenta o mapa fixo primeiro (case-insensitive); senão gera uma cor estavel via hash.
+function getColorHex(name) {
+  if (!name) return "#cccccc";
+  const key = Object.keys(COLOR_HEX).find(k => k.toLowerCase() === name.trim().toLowerCase());
+  if (key) return COLOR_HEX[key];
+  // Hash simples do nome -> tom de cor consistente
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) hash = (hash * 31 + name.charCodeAt(i)) >>> 0;
+  const hue = hash % 360;
+  return `hsl(${hue}, 45%, 60%)`;
+}
+const CAT_ICON   = { Jaleco:"👔", Gorro:"🎩", "Equip. de Massagem":"💆", Outro:"📦" };
 const MONTHS_PT  = ["Janeiro","Fevereiro","Marco","Abril","Maio","Junho","Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"];
 
 function genBarcode(products) {
@@ -251,13 +264,12 @@ tr:hover td{background:var(--surface2)}
   body *{visibility:hidden !important}
   #print-area,#print-area *{visibility:visible !important}
   #print-area{
-    position:fixed;inset:0;
-    background:#fff;
     display:grid !important;
     grid-template-columns:repeat(3,63mm);
     grid-auto-rows:32mm;
     gap:2mm 3mm;
     padding:0;
+    margin:0;
     align-content:start;
     width:189mm;
   }
@@ -541,10 +553,11 @@ function ProductFormModal({ products, saveProducts, showToast, editingProduct, o
   const editing = editingProduct?.id || null;
   const [form, setForm] = useState(() => editingProduct
     ? { category: editingProduct.category||CATEGORIES[0], model: editingProduct.model, color: editingProduct.color, size: editingProduct.size, barcode: editingProduct.barcode||"", stock: editingProduct.stock, price: editingProduct.price||"" }
-    : { category: CATEGORIES[0], model:"", color: COLORS[0], size: SIZES[1], barcode:"", stock:0, price:"" }
+    : { category: CATEGORIES[0], model:"", color: "", size: SIZES[1], barcode:"", stock:0, price:"" }
   );
   const [scanMode, setScanMode]     = useState(false);
   const [showSuggest, setShowSuggest] = useState(false);
+  const [showColorSuggest, setShowColorSuggest] = useState(false);
   const barcodeRef = useRef();
   const modelRef   = useRef();
 
@@ -558,9 +571,16 @@ function ProductFormModal({ products, saveProducts, showToast, editingProduct, o
     m => m.toLowerCase().includes((form.model||"").toLowerCase()) && m !== form.model
   );
 
+  // Cores ja cadastradas (de todos os produtos), para sugestao no campo Cor
+  const existingColors = [...new Set(products.map(p => p.color).filter(Boolean))];
+  const colorSuggestFiltered = existingColors.filter(
+    c => c.toLowerCase().includes((form.color||"").toLowerCase()) && c.toLowerCase() !== (form.color||"").toLowerCase()
+  );
+
   const saveItem = () => {
     if (!form.model.trim()) return showToast("Informe o modelo");
     if (!form.category)     return showToast("Selecione a categoria");
+    if (!form.color.trim()) return showToast("Informe a cor");
     const dup = products.find(p => p.barcode && p.barcode === form.barcode.trim() && p.id !== editing);
     if (dup) return showToast("Codigo de barras ja cadastrado");
     if (editing) {
@@ -629,9 +649,27 @@ function ProductFormModal({ products, saveProducts, showToast, editingProduct, o
           <div className="form-row">
             <div className="field">
               <label>Cor</label>
-              <select value={form.color} onChange={e => setForm(f => ({...f, color:e.target.value}))}>
-                {COLORS.map(c => <option key={c}>{c}</option>)}
-              </select>
+              <div className="field-relative">
+                <input
+                  placeholder="Digite a cor..."
+                  value={form.color}
+                  onChange={e => { setForm(f => ({...f, color: e.target.value})); setShowColorSuggest(true); }}
+                  onFocus={() => setShowColorSuggest(true)}
+                  onBlur={() => setTimeout(() => setShowColorSuggest(false), 150)}
+                  autoComplete="off"
+                  style={{padding:"10px 12px",border:"1.5px solid var(--border)",borderRadius:"var(--radius-sm)",fontFamily:"inherit",fontSize:14,color:"var(--ink)",outline:"none",width:"100%",transition:"border .15s"}}
+                />
+                {showColorSuggest && colorSuggestFiltered.length > 0 && (
+                  <div className="suggest-list">
+                    {colorSuggestFiltered.map(c => (
+                      <div key={c} className="suggest-item" onMouseDown={() => { setForm(f => ({...f, color:c})); setShowColorSuggest(false); }}>
+                        <span style={{width:10,height:10,borderRadius:"50%",background:getColorHex(c),flexShrink:0,border:"1px solid rgba(0,0,0,.1)",display:"inline-block"}} />
+                        {c}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
             <div className="field">
               <label>Tamanho</label>
@@ -805,7 +843,7 @@ function Dashboard({ products, saveProducts, showToast, sales }) {
                       <tr key={p.id}>
                         <td>
                           <div style={{display:"flex",alignItems:"center",gap:7}}>
-                            <span style={{width:11,height:11,borderRadius:"50%",background:COLOR_HEX[p.color]||"#ccc",flexShrink:0,border:"1px solid rgba(0,0,0,.1)"}} />
+                            <span style={{width:11,height:11,borderRadius:"50%",background:getColorHex(p.color),flexShrink:0,border:"1px solid rgba(0,0,0,.1)"}} />
                             {p.color}
                           </div>
                         </td>
@@ -842,7 +880,7 @@ function Dashboard({ products, saveProducts, showToast, sales }) {
             const pct = Math.min(100, (p.stock / 20) * 100);
             return (
               <div key={p.id} style={{display:"flex",alignItems:"center",gap:10,paddingBottom:10,marginBottom:10,borderBottom:"1px solid var(--border)"}}>
-                <span style={{width:10,height:10,borderRadius:"50%",background:COLOR_HEX[p.color]||"#ccc",flexShrink:0,border:"1px solid rgba(0,0,0,.1)"}} />
+                <span style={{width:10,height:10,borderRadius:"50%",background:getColorHex(p.color),flexShrink:0,border:"1px solid rgba(0,0,0,.1)"}} />
                 <div style={{flex:1}}>
                   <div style={{fontSize:13,fontWeight:600}}>
                     {p.category && <span style={{fontSize:11,color:"var(--ink2)",marginRight:5}}>[{p.category}]</span>}
@@ -1083,7 +1121,7 @@ function RestockModal({ products, saveProducts, showToast, onClose }) {
                     style={{display:"flex",alignItems:"center",gap:10,padding:"9px 12px",borderBottom:"1px solid var(--border)",cursor:"pointer"}}
                     onMouseDown={() => selectProduct(p)}
                   >
-                    <span style={{width:10,height:10,borderRadius:"50%",background:COLOR_HEX[p.color]||"#ccc",flexShrink:0,border:"1px solid rgba(0,0,0,.1)"}} />
+                    <span style={{width:10,height:10,borderRadius:"50%",background:getColorHex(p.color),flexShrink:0,border:"1px solid rgba(0,0,0,.1)"}} />
                     <div style={{flex:1,minWidth:0}}>
                       <div style={{fontSize:13,fontWeight:600,display:"flex",alignItems:"center",gap:5}}>
                         {p.category && <span style={{fontSize:10,color:"var(--ink3)"}}>{CAT_ICON[p.category]||""}</span>}
@@ -1108,7 +1146,7 @@ function RestockModal({ products, saveProducts, showToast, onClose }) {
         {found && (
           <div style={{marginBottom:16}}>
             <div className="restock-found">
-              <span style={{width:14,height:14,borderRadius:"50%",background:COLOR_HEX[found.color]||"#ccc",flexShrink:0,border:"1px solid rgba(0,0,0,.1)"}} />
+              <span style={{width:14,height:14,borderRadius:"50%",background:getColorHex(found.color),flexShrink:0,border:"1px solid rgba(0,0,0,.1)"}} />
               <div className="restock-found-info">
                 <div className="restock-found-name">
                   {found.category && <span style={{fontSize:11,color:"var(--success)",marginRight:5}}>{CAT_ICON[found.category]||""} {found.category}</span>}
@@ -1187,10 +1225,14 @@ function Etiquetas({ products, saveProducts, showToast }) {
 
   const withoutBC = products.filter(p => !p.barcode).length;
   const cats = CATEGORIES.filter(c => products.some(p => p.category===c));
+  const hasUncategorized = products.some(p => !p.category || !CATEGORIES.includes(p.category));
+  const tabCats = hasUncategorized ? [...cats, "Sem categoria"] : cats;
 
   const filtered = products.filter(p => {
     const mf = filter==="all"||(filter==="with"&&p.barcode)||(filter==="without"&&!p.barcode);
-    const mc = catFilter==="all"||(p.category||"")===catFilter;
+    const mc = catFilter==="all"
+      || (catFilter==="Sem categoria" && (!p.category || !CATEGORIES.includes(p.category)))
+      || (p.category||"")===catFilter;
     const ms = p.model.toLowerCase().includes(search.toLowerCase())||
       (p.barcode||"").includes(search)||p.color.toLowerCase().includes(search.toLowerCase());
     return mf && mc && ms;
@@ -1298,10 +1340,6 @@ function Etiquetas({ products, saveProducts, showToast }) {
             <option value="with">Com codigo ({products.length-withoutBC})</option>
             <option value="without">Sem codigo ({withoutBC})</option>
           </select>
-          <select className="filter-select" value={catFilter} onChange={e=>setCatFilter(e.target.value)}>
-            <option value="all">Todas categorias</option>
-            {cats.map(c=><option key={c}>{c}</option>)}
-          </select>
         </div>
         <div style={{display:"flex",flexWrap:"wrap",gap:8,alignItems:"center"}}>
           {withoutBC>0 && <button className="btn btn-primary btn-sm" onClick={generateAll}>⚡ Gerar todos sem codigo ({withoutBC})</button>}
@@ -1313,7 +1351,7 @@ function Etiquetas({ products, saveProducts, showToast }) {
               <input value={shopName} onChange={e=>setShopName(e.target.value)} placeholder="Nome da loja"
                 style={{padding:"7px 10px",border:"1.5px solid var(--border)",borderRadius:"var(--radius-sm)",fontFamily:"inherit",fontSize:13,outline:"none",width:130}} />
               <div style={{display:"flex",alignItems:"center",gap:5}}>
-                <span style={{fontSize:12,color:"var(--ink2)"}}>Copias:</span>
+                <span style={{fontSize:12,color:"var(--ink2)"}}>Quantidade de etiquetas:</span>
                 <input type="number" min="1" max="30" value={copies} onChange={e=>setCopies(Math.max(1,+e.target.value))}
                   style={{width:48,padding:"7px 8px",border:"1.5px solid var(--border)",borderRadius:"var(--radius-sm)",fontFamily:"inherit",fontSize:13,outline:"none",textAlign:"center"}} />
               </div>
@@ -1322,6 +1360,28 @@ function Etiquetas({ products, saveProducts, showToast }) {
           )}
         </div>
       </div>
+
+      {/* Abas de categoria */}
+      {tabCats.length > 0 && (
+        <div className="cat-tabs">
+          <button className={`cat-tab ${catFilter==="all"?"active":""}`} onClick={()=>setCatFilter("all")}>
+            📋 Todas
+            <span className="cat-tab-count">{products.length}</span>
+          </button>
+          {tabCats.map(cat => {
+            const count = cat==="Sem categoria"
+              ? products.filter(p=>!p.category||!CATEGORIES.includes(p.category)).length
+              : products.filter(p=>p.category===cat).length;
+            return (
+              <button key={cat} className={`cat-tab ${catFilter===cat?"active":""}`} onClick={()=>setCatFilter(cat)}>
+                <span>{CAT_ICON[cat]||"📦"}</span>
+                {cat}
+                <span className="cat-tab-count">{count}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       {filtered.length===0 ? (
         <div className="card"><div className="empty"><div className="empty-icon">🏷️</div><p>Nenhum produto encontrado.</p></div></div>
@@ -1362,7 +1422,7 @@ function Etiquetas({ products, saveProducts, showToast }) {
               {/* Info produto */}
               <div style={{minWidth:0}}>
                 <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:1}}>
-                  <span style={{width:9,height:9,borderRadius:"50%",background:COLOR_HEX[p.color]||"#ccc",flexShrink:0,border:"1px solid rgba(0,0,0,.1)"}} />
+                  <span style={{width:9,height:9,borderRadius:"50%",background:getColorHex(p.color),flexShrink:0,border:"1px solid rgba(0,0,0,.1)"}} />
                   <span style={{fontWeight:700,fontSize:13,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{p.model}</span>
                 </div>
                 <div style={{fontSize:11,color:"var(--ink2)",paddingLeft:15}}>
@@ -1397,11 +1457,6 @@ function Etiquetas({ products, saveProducts, showToast }) {
                   <>
                     <button className="btn btn-ghost btn-sm" style={{padding:"4px 8px",fontSize:11}} onClick={()=>openEdit(p)}>✏️</button>
                     <button className="btn btn-sm" style={{background:"var(--danger-light)",color:"var(--danger)",padding:"4px 8px",fontSize:11}} onClick={()=>clearCode(p)}>🗑️</button>
-                    <button
-                      className={`btn btn-sm ${selected.has(p.id)?"btn-primary":"btn-outline"}`}
-                      style={{padding:"4px 8px",fontSize:11}}
-                      onClick={()=>toggle(p.id)}
-                    >{selected.has(p.id)?"✓":"+ Sel"}</button>
                   </>
                 ) : (
                   <>
@@ -1420,7 +1475,7 @@ function Etiquetas({ products, saveProducts, showToast }) {
           <div className="modal">
             <div className="modal-title">Editar Codigo<button className="close-btn" onClick={()=>setEditModal(null)}>×</button></div>
             <div style={{marginBottom:14,padding:12,background:"var(--surface2)",borderRadius:"var(--radius-sm)",display:"flex",alignItems:"center",gap:8}}>
-              <span style={{width:12,height:12,borderRadius:"50%",background:COLOR_HEX[editModal.color]||"#ccc",flexShrink:0,border:"1px solid rgba(0,0,0,.1)"}} />
+              <span style={{width:12,height:12,borderRadius:"50%",background:getColorHex(editModal.color),flexShrink:0,border:"1px solid rgba(0,0,0,.1)"}} />
               <div>
                 <div style={{fontSize:13,fontWeight:600}}>{editModal.model}</div>
                 <div style={{fontSize:12,color:"var(--ink2)"}}>{editModal.category} · {editModal.color} · {editModal.size}</div>
@@ -1717,7 +1772,7 @@ function Venda({ products, saveProducts, saveSales, sales, showToast }) {
                     style={{display:"flex",alignItems:"center",gap:10,padding:"9px 12px",borderBottom:"1px solid var(--border)",cursor:"pointer",background:"var(--surface)"}}
                     onMouseDown={()=>{addProduct(p);setSearchQ("");}}
                   >
-                    <span style={{width:10,height:10,borderRadius:"50%",background:COLOR_HEX[p.color]||"#ccc",flexShrink:0,border:"1px solid rgba(0,0,0,.1)"}} />
+                    <span style={{width:10,height:10,borderRadius:"50%",background:getColorHex(p.color),flexShrink:0,border:"1px solid rgba(0,0,0,.1)"}} />
                     <div style={{flex:1,minWidth:0}}>
                       <div style={{fontSize:13,fontWeight:600,display:"flex",gap:6,alignItems:"center"}}>
                         {p.category&&<span style={{fontSize:10,color:"var(--ink3)"}}>{CAT_ICON[p.category]||""}</span>}
@@ -2042,7 +2097,7 @@ function OrderDetailModal({ sale, products, onClose }) {
                       <td style={{fontWeight:600}}>{r.model}</td>
                       <td>
                         <div style={{display:"flex",alignItems:"center",gap:5}}>
-                          <span style={{width:9,height:9,borderRadius:"50%",background:COLOR_HEX[r.color]||"#ccc",flexShrink:0,border:"1px solid rgba(0,0,0,.1)"}}/>
+                          <span style={{width:9,height:9,borderRadius:"50%",background:getColorHex(r.color),flexShrink:0,border:"1px solid rgba(0,0,0,.1)"}}/>
                           {r.color}
                         </div>
                       </td>
@@ -2420,7 +2475,7 @@ function Historico({ sales, products }) {
                         <td style={{fontWeight:600}}>{row.model}</td>
                         <td>
                           <div style={{display:"flex",alignItems:"center",gap:6}}>
-                            <span style={{width:10,height:10,borderRadius:"50%",background:COLOR_HEX[row.color]||"#ccc",flexShrink:0,border:"1px solid rgba(0,0,0,.1)"}} />
+                            <span style={{width:10,height:10,borderRadius:"50%",background:getColorHex(row.color),flexShrink:0,border:"1px solid rgba(0,0,0,.1)"}} />
                             {row.color}
                           </div>
                         </td>
