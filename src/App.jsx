@@ -258,39 +258,7 @@ tr:hover td{background:var(--surface2)}
   .bottom-btn.active{color:var(--accent)}
   .app{padding-bottom:72px}
 }
-/* print — etiquetas em folha A4 */
-@media print{
-  @page{size:A4 portrait;margin:8mm}
-  body *{visibility:hidden !important}
-  #print-area,#print-area *{visibility:visible !important}
-  #print-area{
-    display:grid !important;
-    grid-template-columns:repeat(3,63mm);
-    grid-auto-rows:32mm;
-    gap:2mm 3mm;
-    padding:0;
-    margin:0;
-    align-content:start;
-    width:189mm;
-  }
-  .print-label{
-    border:.4pt solid #ccc;
-    border-radius:1.5mm;
-    padding:2.5mm 3mm;
-    page-break-inside:avoid;
-    background:#fff;
-    overflow:hidden;
-    display:flex;
-    flex-direction:column;
-    justify-content:space-between;
-  }
-  .print-label-top{display:flex;flex-direction:column;gap:.3mm}
-  .print-shop{font-size:5.5pt;font-weight:700;color:#aaa;letter-spacing:.4pt;text-transform:uppercase}
-  .print-name{font-size:8.5pt;font-weight:700;color:#111;line-height:1.2}
-  .print-detail{font-size:7pt;color:#555}
-  .print-price{font-size:7.5pt;font-weight:700;color:#111}
-  .print-label svg{max-width:100%;height:22mm !important}
-}
+
 `;
 
 // ── App Root ──────────────────────────────────────────────────────────────────
@@ -1273,47 +1241,85 @@ function Etiquetas({ products, saveProducts, showToast }) {
 
   const printLabels = () => {
     if (selectedWithBC===0) return showToast("Selecione etiquetas com codigo");
+
+    // Monta lista de itens com o numero de copias
     const items = [];
     [...selected].forEach(id => {
       const p = products.find(x => x.id===id);
       if (!p || !p.barcode) return;
       for (let i=0; i<copies; i++) items.push(p);
     });
-    const area = document.getElementById("print-area");
-    area.innerHTML = "";
-    items.forEach(p => {
-      const div = document.createElement("div");
-      div.className = "print-label";
-      const svgEl = document.createElementNS("http://www.w3.org/2000/svg","svg");
-      const svgId = "svg"+Math.random().toString(36).slice(2);
-      svgEl.id = svgId;
-      const top = document.createElement("div");
-      top.className = "print-label-top";
-      top.innerHTML = `
-        <div class="print-shop">${shopName}</div>
-        <div class="print-name">${p.model}</div>
-        <div class="print-detail">${p.category||""} · ${p.color} · Tam. ${p.size}</div>
-      `;
-      div.appendChild(top);
-      div.appendChild(svgEl);
-      if (p.price) {
-        const priceEl = document.createElement("div");
-        priceEl.className = "print-price";
-        priceEl.textContent = "R$ " + Number(p.price).toFixed(2).replace(".",",");
-        div.appendChild(priceEl);
-      }
-      area.appendChild(div);
-      // Render barcode synchronously using npm JsBarcode
+    if (items.length===0) return showToast("Nenhuma etiqueta com codigo para imprimir");
+
+    // Gerar SVG string para cada etiqueta usando JsBarcode
+    const labelsHtml = items.map(p => {
+      // Cria um SVG temporario para gerar o codigo de barras
+      const tempSvg = document.createElementNS("http://www.w3.org/2000/svg","svg");
       try {
-        JsBarcode(svgEl, p.barcode, {
-          format:"CODE128", width:1.4, height:36,
+        JsBarcode(tempSvg, p.barcode, {
+          format:"CODE128", width:1.4, height:38,
           displayValue:true, fontSize:7, font:"monospace",
           lineColor:"#000", margin:1, background:"transparent",
         });
       } catch(e) { console.warn("Barcode error:", p.barcode, e); }
+      const svgString = new XMLSerializer().serializeToString(tempSvg);
+      const price = p.price ? `<div class="price">R$ ${Number(p.price).toFixed(2).replace(".",",")}</div>` : "";
+      return `
+        <div class="label">
+          <div class="shop">${shopName}</div>
+          <div class="name">${p.model}</div>
+          <div class="detail">${p.category||""} · ${p.color} · Tam. ${p.size}</div>
+          <div class="bc">${svgString}</div>
+          ${price}
+        </div>`;
+    }).join("");
+
+    // Abre janela dedicada — sem conteudo extra, sem pagina em branco
+    const w = window.open("","_blank","width=794,height=600");
+    w.document.write(`<!DOCTYPE html>
+<html><head>
+<meta charset="utf-8">
+<title>Etiquetas — ${shopName}</title>
+<style>
+  @page { size: A4 portrait; margin: 8mm; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: Arial, sans-serif; background: #fff; }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(3, 63mm);
+    grid-auto-rows: 32mm;
+    gap: 2mm 3mm;
+    padding: 0;
+    width: 189mm;
+  }
+  .label {
+    border: 0.4pt solid #ccc;
+    border-radius: 1.5mm;
+    padding: 2.5mm 3mm;
+    page-break-inside: avoid;
+    background: #fff;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+  }
+  .shop   { font-size: 5.5pt; font-weight: 700; color: #aaa; letter-spacing: 0.4pt; text-transform: uppercase; }
+  .name   { font-size: 8.5pt; font-weight: 700; color: #111; line-height: 1.2; margin-top: 0.5mm; }
+  .detail { font-size: 7pt; color: #555; margin-top: 0.3mm; }
+  .bc     { flex: 1; display: flex; align-items: center; }
+  .bc svg { max-width: 100%; height: 20mm !important; }
+  .price  { font-size: 7.5pt; font-weight: 700; color: #111; margin-top: 0.5mm; }
+</style>
+</head>
+<body>
+  <div class="grid">${labelsHtml}</div>
+</body></html>`);
+    w.document.close();
+    // Aguarda renderizacao completa e imprime
+    w.addEventListener("load", () => {
+      setTimeout(() => { w.focus(); w.print(); }, 100);
     });
-    // Small delay only for DOM paint, not for script loading
-    setTimeout(() => window.print(), 200);
+    setTimeout(() => { w.focus(); w.print(); }, 500);
   };
 
   return (
@@ -1501,7 +1507,6 @@ function Etiquetas({ products, saveProducts, showToast }) {
           </div>
         </div>
       )}
-      <div id="print-area" style={{display:"none"}} />
     </div>
   );
 }
