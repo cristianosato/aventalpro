@@ -49,7 +49,7 @@ const fmtDate = (d) => new Date(d).toLocaleString("pt-BR", { day:"2-digit", mont
 
 const CATEGORIES = ["Jaleco", "Gorro", "Equip. de Massagem", "Outro"];
 const COLORS     = ["Branco", "Azul", "Verde", "Rosa", "Preto", "Cinza", "Lilas", "Bege", "Vinho", "Amarelo"];
-const SIZES      = ["32", "PP", "P", "M", "G", "GG", "G1", "G2", "G3"];
+const SIZES      = ["Único", "32", "PP", "P", "M", "G", "GG", "G1", "G2", "G3"];
 const COLOR_HEX  = { Branco:"#f5f5f5", Azul:"#4a90d9", Verde:"#4aa87a", Rosa:"#e87a9a", Preto:"#2a2a2a", Cinza:"#8a8a8a", Lilas:"#9a7ace", Bege:"#d4b896", Vinho:"#8b1a1a", Amarelo:"#e8c84a" };
 
 // Retorna a cor hexadecimal para qualquer nome de cor (mesmo digitada livremente).
@@ -716,7 +716,7 @@ function Dashboard({ products, saveProducts, showToast, sales }) {
   const openNew  = () => { setEditingProduct(null); setModal(true); };
   const openEdit = (p)  => { setEditingProduct(p);  setModal(true); };
   const delProduct = (id) => {
-    if (!confirm("Remover este produto?")) return;
+    if (!confirm(`Excluir o produto "${products.find(p=>p.id===id)?.model||id}"?\n\nEsta ação não pode ser desfeita.`)) return;
     saveProducts(products.filter(p => p.id !== id));
     showToast("Produto removido");
   };
@@ -826,8 +826,8 @@ function Dashboard({ products, saveProducts, showToast, sales }) {
                         </td>
                         <td>
                           <div style={{display:"flex",gap:6}}>
-                            <button className="btn btn-ghost btn-sm" onClick={() => openEdit(p)}>✏️</button>
-                            <button className="btn btn-sm" style={{background:"var(--danger-light)",color:"var(--danger)"}} onClick={() => delProduct(p.id)}>🗑️</button>
+                            <button className="btn btn-ghost btn-sm" title="Editar produto" onClick={() => openEdit(p)}>✏️</button>
+                            <button className="btn btn-sm" style={{background:"var(--danger-light)",color:"var(--danger)"}} title="Excluir produto" onClick={() => delProduct(p.id)}>🗑️</button>
                           </div>
                         </td>
                       </tr>
@@ -1233,7 +1233,7 @@ function Etiquetas({ products, saveProducts, showToast }) {
     showToast("Codigo salvo"); setEditModal(null);
   };
   const clearCode = (p) => {
-    if (!confirm("Remover codigo de barras deste produto?")) return;
+    if (!confirm(`Remover o código de barras "${p.barcode}" do produto "${p.model}"?\n\nO produto continuará cadastrado, apenas sem código.`)) return;
     saveProducts(products.map(x => x.id===p.id ? {...x, barcode:""} : x));
     showToast("Codigo removido");
   };
@@ -1461,13 +1461,13 @@ function Etiquetas({ products, saveProducts, showToast }) {
               <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
                 {p.barcode ? (
                   <>
-                    <button className="btn btn-ghost btn-sm" style={{padding:"4px 8px",fontSize:11}} onClick={()=>openEdit(p)}>✏️</button>
-                    <button className="btn btn-sm" style={{background:"var(--danger-light)",color:"var(--danger)",padding:"4px 8px",fontSize:11}} onClick={()=>clearCode(p)}>🗑️</button>
+                    <button className="btn btn-ghost btn-sm" style={{padding:"4px 8px",fontSize:11}} title="Editar código" onClick={()=>openEdit(p)}>✏️</button>
+                    <button className="btn btn-sm" style={{background:"var(--danger-light)",color:"var(--danger)",padding:"4px 8px",fontSize:11}} title="Remover código" onClick={()=>clearCode(p)}>🗑️</button>
                   </>
                 ) : (
                   <>
-                    <button className="btn btn-primary btn-sm" style={{padding:"4px 8px",fontSize:11}} onClick={()=>generateOne(p)}>⚡ Gerar</button>
-                    <button className="btn btn-ghost btn-sm" style={{padding:"4px 8px",fontSize:11}} onClick={()=>openEdit(p)}>✏️</button>
+                    <button className="btn btn-primary btn-sm" style={{padding:"4px 8px",fontSize:11}} title="Gerar código automático" onClick={()=>generateOne(p)}>⚡ Gerar</button>
+                    <button className="btn btn-ghost btn-sm" style={{padding:"4px 8px",fontSize:11}} title="Digitar código manualmente" onClick={()=>openEdit(p)}>✏️</button>
                   </>
                 )}
               </div>
@@ -1550,13 +1550,13 @@ function Venda({ products, saveProducts, saveSales, sales, showToast }) {
   const [cart, setCart] = useState([]);
 
   // Totais
-  const [discount, setDiscount] = useState(""); // %
+  const [discount, setDiscount] = useState(""); // R$
   const [freight,  setFreight]  = useState(""); // R$
 
   const subtotal    = cart.reduce((s,i) => s + i.price*i.qty, 0);
   const totalQty    = cart.reduce((s,i) => s + i.qty, 0);
   const totalItems  = cart.length;
-  const discountVal = discount ? subtotal * (parseFloat(discount)/100) : 0;
+  const discountVal = discount ? Math.min(parseFloat(discount)||0, subtotal) : 0;
   const freightVal  = freight  ? parseFloat(freight) : 0;
   const grandTotal  = subtotal - discountVal + freightVal;
 
@@ -1659,7 +1659,7 @@ function Venda({ products, saveProducts, saveSales, sales, showToast }) {
         price:     i.price,
       })),
       subtotal,
-      discountPct:  discount ? parseFloat(discount) : 0,
+      discountPct:  0,
       discountVal,
       freight:      freightVal,
       total:        grandTotal,
@@ -1911,12 +1911,12 @@ function Venda({ products, saveProducts, saveSales, sales, showToast }) {
                   </div>
                   {/* Linha 3: desconto */}
                   <div className="summary-row">
-                    <span className="summary-label">Desconto (%)</span>
+                    <span className="summary-label">Desconto (R$)</span>
                     <div style={{display:"flex",alignItems:"center",gap:6}}>
                       <input
                         className="inline-input"
-                        type="number" min="0" max="100" step="0.1"
-                        placeholder="0"
+                        type="number" min="0" step="0.01"
+                        placeholder="0,00"
                         value={discount}
                         onChange={e=>setDiscount(e.target.value)}
                       />
@@ -2039,7 +2039,7 @@ function OrderDetailModal({ sale, products, onClose }) {
       </table>`).join("")}
     <div class="totals">
       <div class="tot-row"><span>Subtotal produtos</span><span>${new Intl.NumberFormat("pt-BR",{style:"currency",currency:"BRL"}).format(sale.subtotal||0)}</span></div>
-      ${sale.discountVal>0?`<div class="tot-row"><span>Desconto (${sale.discountPct}%)</span><span style="color:#c0392b">− ${new Intl.NumberFormat("pt-BR",{style:"currency",currency:"BRL"}).format(sale.discountVal)}</span></div>`:""}
+      ${sale.discountVal>0?`<div class="tot-row"><span>Desconto</span><span style="color:#c0392b">− ${new Intl.NumberFormat("pt-BR",{style:"currency",currency:"BRL"}).format(sale.discountVal)}</span></div>`:""}
       ${sale.freight>0?`<div class="tot-row"><span>Frete / Envio</span><span style="color:#c07a1a">+ ${new Intl.NumberFormat("pt-BR",{style:"currency",currency:"BRL"}).format(sale.freight)}</span></div>`:""}
       <div class="tot-row final"><span>Total Final</span><span>${new Intl.NumberFormat("pt-BR",{style:"currency",currency:"BRL"}).format(sale.total||0)}</span></div>
     </div>
@@ -2136,7 +2136,7 @@ function OrderDetailModal({ sale, products, onClose }) {
           </div>
           {sale.discountVal>0&&(
             <div style={{display:"flex",justifyContent:"space-between",padding:"5px 0",fontSize:13}}>
-              <span style={{color:"var(--danger)"}}>Desconto ({sale.discountPct}%)</span>
+              <span style={{color:"var(--danger)"}}>Desconto</span>
               <span style={{fontWeight:600,color:"var(--danger)"}}>− {fmt(sale.discountVal)}</span>
             </div>
           )}
@@ -2427,7 +2427,7 @@ function Historico({ sales, products }) {
                     </div>
                     <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:4,flexShrink:0}}>
                       <div style={{textAlign:"right"}}>
-                        {s.discountVal>0&&<div style={{fontSize:11,color:"var(--danger)"}}>Desconto {s.discountPct}%: −{fmt(s.discountVal)}</div>}
+                        {s.discountVal>0&&<div style={{fontSize:11,color:"var(--danger)"}}>Desconto: −{fmt(s.discountVal)}</div>}
                         {s.freightVal>0&&<div style={{fontSize:11,color:"var(--warn)"}}>Frete: +{fmt(s.freightVal)}</div>}
                         <div style={{fontSize:14,fontWeight:700,color:"var(--accent)"}}>{s.saleTotal>0?fmt(s.saleTotal):"—"}</div>
                       </div>
